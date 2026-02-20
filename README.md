@@ -26,6 +26,7 @@ trumpcoin-rl/
 ├── dashboard.py                    # Streamlit dashboard (experiment runner + analysis)
 ├── project-description.md          # Formal project description
 ├── project-plan.md                 # Detailed project plan
+├── requirements.txt                # Python dependencies (pip install -r)
 └── README.md
 ```
 
@@ -41,7 +42,7 @@ python -m venv venv
 source venv/bin/activate
 
 # 2. Install dependencies
-pip install pandas numpy yfinance gymnasium matplotlib plotly streamlit torch
+pip install -r requirements.txt
 ```
 
 ---
