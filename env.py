@@ -11,7 +11,8 @@ class TradingEnv(gym.Env):
     """
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, data_path_or_df=None, risk_aversion=1.0, tx_cost=0.001, initial_capital=10000.0):
+    def __init__(self, data_path_or_df=None, risk_aversion=1.0, tx_cost=0.001, initial_capital=10000.0,
+                 normalize=False, norm_stats=None):
         super(TradingEnv, self).__init__()
         
         # Load the dataframe
@@ -27,6 +28,7 @@ class TradingEnv(gym.Env):
         self.risk_aversion = risk_aversion
         self.tx_cost = tx_cost
         self.initial_capital = initial_capital
+        self.normalize = normalize
         
         # Discrete Action Space: 5 Actions
         # 0: Heavy Sell (0% TRUMP)
@@ -72,6 +74,21 @@ class TradingEnv(gym.Env):
         # Cache values to speed up step()
         self.returns_1h = self.df['feature_log_return_1h'].values
         self.features_matrix = self.df[self.feature_cols].values
+
+        # Normalization: compute or reuse z-score stats
+        if self.normalize:
+            if norm_stats is not None:
+                self.norm_stats = norm_stats
+            else:
+                # Compute from this dataset (should be training set)
+                self.norm_stats = {
+                    'mean': self.features_matrix.mean(axis=0),
+                    'std': self.features_matrix.std(axis=0),
+                }
+                # Prevent division by zero for constant features
+                self.norm_stats['std'][self.norm_stats['std'] < 1e-8] = 1.0
+        else:
+            self.norm_stats = None
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -162,7 +179,10 @@ class TradingEnv(gym.Env):
     def _get_obs(self):
         """Constructs the observation vector."""
         row_features = self.features_matrix[self.current_step]
-        # Append the current position to the feature array
+        # Apply z-score normalization if enabled
+        if self.normalize and self.norm_stats is not None:
+            row_features = (row_features - self.norm_stats['mean']) / self.norm_stats['std']
+        # Append the current position to the feature array (position stays in [0, 1])
         obs = np.append(row_features, self.position)
         return obs.astype(np.float32)
 

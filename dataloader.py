@@ -57,18 +57,11 @@ def fetch_data(tickers, interval='1h', period='730d'):
     # We use an outer join to capture all available hours, then sort
     combined = pd.concat(dfs.values(), axis=1).sort_index()
     
-    # Missing data handling:
     # 1. Forward-fill to cover weekends for traditional markets (equities/futures)
     #    We limit ffill to 72 hours to avoid filling across massive data gaps.
     combined = combined.ffill(limit=72)
-    # 2. Drop rows where the target asset (TRUMP or BTC) is completely missing
-    #    Since this is a crypto project, we need the crypto asset to be present.
-    original_len = len(combined)
-    target_close = 'TRUMP35336-USD_Close' if 'TRUMP35336-USD' in tickers else f'{tickers[0]}_Close'
-    
-    if target_close in combined.columns:
-        combined = combined.dropna(subset=[target_close])
-        print(f"Dropped {original_len - len(combined)} rows where {target_close} was missing.")
+    # We NO LONGER drop rows based on a single target asset here, to avoid biasing the resulting 
+    # datasets for other assets when we split them. We handle dropping missing data per-asset in preprocess_features.
     
     print(f"Fetched {len(combined)} total hourly observations.")
     return combined
@@ -92,6 +85,12 @@ def preprocess_features(df, target_prefix='TRUMP35336-USD'):
     
     if close_col not in df.columns:
         raise ValueError(f"Target close column '{close_col}' not found in dataframe.")
+        
+    # Drop rows where the specific asset being preprocessed is missing data
+    # This prevents the final dataset generated from incorrectly referencing missing periods
+    original_len_before_drop = len(df)
+    df = df.dropna(subset=[close_col])
+    print(f"  -> Dropped {original_len_before_drop - len(df)} rows where {close_col} was missing before features generation.")
 
     # 1. Price Momentum Features (Log Returns)
     # Log returns are preferred for financial ML as they are symmetric and additive

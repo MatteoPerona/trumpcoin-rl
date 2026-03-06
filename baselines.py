@@ -51,7 +51,8 @@ def _buy_and_hold(config):
     _, test_df = split_dataset(data_path, config.get('train_ratio', 0.7))
     env = TradingEnv(data_path_or_df=test_df,
                      risk_aversion=config.get('risk_aversion', 1.0),
-                     tx_cost=config.get('tx_cost', 0.001))
+                     tx_cost=config.get('tx_cost', 0.001),
+                     normalize=True)
 
     def action_fn(obs, step, env):
         return 4 if step == 0 else 2  # Heavy Buy on step 0, then Hold
@@ -67,7 +68,8 @@ def _sma_crossover(config):
     _, test_df = split_dataset(data_path, config.get('train_ratio', 0.7))
     env = TradingEnv(data_path_or_df=test_df,
                      risk_aversion=config.get('risk_aversion', 1.0),
-                     tx_cost=config.get('tx_cost', 0.001))
+                     tx_cost=config.get('tx_cost', 0.001),
+                     normalize=True)
 
     short_window = config.get('sma_short', 12)
     long_window = config.get('sma_long', 48)
@@ -97,7 +99,8 @@ def _random_agent(config):
     _, test_df = split_dataset(data_path, config.get('train_ratio', 0.7))
     env = TradingEnv(data_path_or_df=test_df,
                      risk_aversion=config.get('risk_aversion', 1.0),
-                     tx_cost=config.get('tx_cost', 0.001))
+                     tx_cost=config.get('tx_cost', 0.001),
+                     normalize=True)
 
     def action_fn(obs, step, env):
         return env.action_space.sample()

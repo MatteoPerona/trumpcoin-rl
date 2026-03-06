@@ -25,18 +25,22 @@ class QLearningAgent:
         hour_sin = obs[5]
         position = obs[9]
 
-        if return_1h < -0.005:    return_bin = 0
-        elif return_1h > 0.005:   return_bin = 2
+        # Thresholds are in z-score space when normalization is enabled
+        # z < -0.5 → negative, z > 0.5 → positive, else flat
+        if return_1h < -0.5:      return_bin = 0
+        elif return_1h > 0.5:     return_bin = 2
         else:                     return_bin = 1
 
-        if volatility_24h < 0.015:  vol_bin = 0
-        elif volatility_24h > 0.030: vol_bin = 2
-        else:                        vol_bin = 1
+        if volatility_24h < -0.5:   vol_bin = 0
+        elif volatility_24h > 0.5:  vol_bin = 2
+        else:                       vol_bin = 1
 
+        # Position is not normalized, stays in [0, 1]
         if position < 0.33:   pos_bin = 0
         elif position > 0.66: pos_bin = 2
         else:                 pos_bin = 1
 
+        # hour_sin: normalized but sign still meaningful for day/night
         time_bin = 0 if hour_sin < 0 else 1
         return (return_bin, vol_bin, pos_bin, time_bin)
 
@@ -112,8 +116,10 @@ def run_experiment(config, progress_cb=None):
 
     risk_aversion = config.get('risk_aversion', 1.0)
     tx_cost = config.get('tx_cost', 0.001)
-    train_env = TradingEnv(data_path_or_df=train_df, risk_aversion=risk_aversion, tx_cost=tx_cost)
-    test_env  = TradingEnv(data_path_or_df=test_df,  risk_aversion=risk_aversion, tx_cost=tx_cost)
+    train_env = TradingEnv(data_path_or_df=train_df, risk_aversion=risk_aversion, tx_cost=tx_cost,
+                           normalize=True)
+    test_env  = TradingEnv(data_path_or_df=test_df,  risk_aversion=risk_aversion, tx_cost=tx_cost,
+                           normalize=True, norm_stats=train_env.norm_stats)
 
     agent = QLearningAgent(
         alpha=config.get('alpha', 0.1),

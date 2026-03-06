@@ -74,10 +74,11 @@ class DQNAgent:
         self.target_update = cfg.get('target_update', 500)
         self.state_noise = cfg.get('state_noise', 0.01)
 
+        self.device = torch.device("mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu"))
         hidden = cfg.get('hidden_dim', 64)
         drop = cfg.get('dropout_rate', 0.1)
-        self.q_net = QNetwork(obs_dim, action_dim, hidden, drop)
-        self.target_net = QNetwork(obs_dim, action_dim, hidden, drop)
+        self.q_net = QNetwork(obs_dim, action_dim, hidden, drop).to(self.device)
+        self.target_net = QNetwork(obs_dim, action_dim, hidden, drop).to(self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
 
@@ -92,7 +93,7 @@ class DQNAgent:
     def choose_action(self, state, evaluation=False):
         if not evaluation and random.random() < self.epsilon:
             return random.randint(0, self.action_dim - 1)
-        state_t = torch.FloatTensor(state).unsqueeze(0)
+        state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         self.q_net.eval()
         with torch.no_grad():
             q = self.q_net(state_t)
@@ -103,11 +104,11 @@ class DQNAgent:
         if len(self.memory) < self.batch_size:
             return
         states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
-        states = torch.FloatTensor(states)
-        actions = torch.LongTensor(actions).unsqueeze(1)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1)
-        next_states = torch.FloatTensor(next_states)
-        dones = torch.FloatTensor(dones).unsqueeze(1)
+        states = torch.FloatTensor(states).to(self.device)
+        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
+        rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
 
         q_values = self.q_net(states).gather(1, actions)
         with torch.no_grad():
@@ -159,9 +160,11 @@ def run_experiment(config, progress_cb=None):
     train_df, test_df = split_dataset(data_path, cfg['train_ratio'])
 
     train_env = TradingEnv(data_path_or_df=train_df,
-                           risk_aversion=cfg['risk_aversion'], tx_cost=cfg['tx_cost'])
+                           risk_aversion=cfg['risk_aversion'], tx_cost=cfg['tx_cost'],
+                           normalize=True)
     test_env = TradingEnv(data_path_or_df=test_df,
-                          risk_aversion=cfg['risk_aversion'], tx_cost=cfg['tx_cost'])
+                          risk_aversion=cfg['risk_aversion'], tx_cost=cfg['tx_cost'],
+                          normalize=True, norm_stats=train_env.norm_stats)
 
     obs_dim, action_dim = 10, 5
     agent = DQNAgent(obs_dim, action_dim, cfg)
