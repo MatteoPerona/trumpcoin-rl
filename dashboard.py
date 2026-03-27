@@ -49,7 +49,7 @@ def load_all_runs():
 page = st.sidebar.radio("Navigation", [
     "🚀 Run Experiment",
     "📊 Explore Past Runs",
-    "🔍 Inspect Q-Values",
+    "🔍 Inspect Models",
 ])
 
 # ======================================================================
@@ -58,7 +58,14 @@ page = st.sidebar.radio("Navigation", [
 if page == "🚀 Run Experiment":
     st.title("🚀 Run Experiment")
 
-    ALL_MODELS = ["Tabular Q-Learning", "Double DQN", "Buy & Hold", "SMA Crossover", "Random Agent"]
+    ALL_MODELS = [
+        "Tabular Q-Learning",
+        "Double DQN",
+        "REINFORCE + Baseline",
+        "Buy & Hold",
+        "SMA Crossover",
+        "Random Agent",
+    ]
     model = st.radio("Model", ALL_MODELS, horizontal=True)
     is_baseline = model in ("Buy & Hold", "SMA Crossover", "Random Agent")
 
@@ -91,6 +98,17 @@ if page == "🚀 Run Experiment":
             state_noise = st.slider("State Noise (σ)", 0.0, 0.10, 0.01, 0.005)
             eps_decay = st.slider("Epsilon Decay", 0.80, 0.999, 0.95, 0.001)
             episodes = st.number_input("Episodes", 5, 200, 50)
+        elif model == "REINFORCE + Baseline":
+            st.subheader("REINFORCE Hyperparameters")
+            policy_lr = st.select_slider("Policy Learning Rate", [1e-5, 3e-5, 1e-4, 3e-4, 1e-3], value=1e-4)
+            value_lr = st.select_slider("Value Learning Rate", [1e-5, 3e-5, 1e-4, 3e-4, 1e-3], value=1e-3)
+            gamma = st.slider("Discount Factor (γ)", 0.80, 1.0, 0.99, 0.01)
+            hidden_dim = st.select_slider("Hidden Dim", [32, 64, 128, 256], value=64)
+            episode_length = st.number_input("Episode Window (hours)", 24, 1000, 168,
+                                             help="Each training episode samples a random contiguous window from the train split.")
+            entropy_coef = st.slider("Entropy Coef", 0.0, 0.05, 0.0, 0.005,
+                                     help="Small positive values encourage exploration.")
+            episodes = st.number_input("Episodes", 5, 200, 50)
         elif model == "SMA Crossover":
             st.subheader("SMA Parameters")
             sma_short = st.number_input("Short Window (hours)", 4, 100, 12)
@@ -113,8 +131,18 @@ if page == "🚀 Run Experiment":
 
         def on_progress(ep, total, m):
             progress_bar.progress(ep / total)
-            status_area.text(f"Episode {ep}/{total} — Reward: {m['reward']:.2f} "
-                             f"| Portfolio: ${m['portfolio']:.2f} | ε: {m['epsilon']:.3f}")
+            parts = [
+                f"Episode {ep}/{total}",
+                f"Reward: {m['reward']:.2f}",
+                f"Portfolio: ${m['portfolio']:.2f}",
+            ]
+            if 'epsilon' in m:
+                parts.append(f"ε: {m['epsilon']:.3f}")
+            if 'policy_loss' in m:
+                parts.append(f"Policy Loss: {m['policy_loss']:.4f}")
+            if 'value_loss' in m:
+                parts.append(f"Value Loss: {m['value_loss']:.4f}")
+            status_area.text(" | ".join(parts))
 
         with st.spinner("Running…"):
             if model == "Tabular Q-Learning":
@@ -129,6 +157,15 @@ if page == "🚀 Run Experiment":
                 config = dict(lr=lr, gamma=gamma, hidden_dim=hidden_dim,
                               dropout_rate=dropout_rate, weight_decay=weight_decay,
                               state_noise=state_noise, epsilon_decay=eps_decay,
+                              episodes=int(episodes), risk_aversion=risk_aversion,
+                              tx_cost=tx_cost, train_ratio=train_ratio,
+                              dataset=dataset.lower())
+                result = run_experiment(config, progress_cb=on_progress)
+            elif model == "REINFORCE + Baseline":
+                from reinforce_agent import run_experiment
+                config = dict(policy_lr=policy_lr, value_lr=value_lr, gamma=gamma,
+                              hidden_dim=hidden_dim, episode_length=int(episode_length),
+                              entropy_coef=entropy_coef,
                               episodes=int(episodes), risk_aversion=risk_aversion,
                               tx_cost=tx_cost, train_ratio=train_ratio,
                               dataset=dataset.lower())
@@ -150,6 +187,7 @@ if page == "🚀 Run Experiment":
         status_area.success("✅ Complete!")
 
         model_key_map = {"Tabular Q-Learning": "q_learning", "Double DQN": "dqn",
+                         "REINFORCE + Baseline": "reinforce",
                          "Buy & Hold": "buy_hold", "SMA Crossover": "sma_crossover",
                          "Random Agent": "random"}
         run_id = save_run(model_key_map[model], result)
@@ -269,10 +307,10 @@ elif page == "📊 Explore Past Runs":
 
 
 # ======================================================================
-# PAGE 3 – INSPECT Q-VALUES
+# PAGE 3 – INSPECT MODELS
 # ======================================================================
-elif page == "🔍 Inspect Q-Values":
-    st.title("🔍 Inspect Q-Values")
+elif page == "🔍 Inspect Models":
+    st.title("🔍 Inspect Models")
 
     runs = load_all_runs()
     if not runs:
@@ -286,8 +324,11 @@ elif page == "🔍 Inspect Q-Values":
     dqn_runs = [r for r in runs
                 if r['model'] == 'dqn'
                 and os.path.exists(os.path.join(RUNS_DIR, f"{r['run_id']}.pt"))]
+    reinforce_runs = [r for r in runs
+                      if r['model'] == 'reinforce'
+                      and os.path.exists(os.path.join(RUNS_DIR, f"{r['run_id']}.pt"))]
 
-    if not ql_runs and not dqn_runs:
+    if not ql_runs and not dqn_runs and not reinforce_runs:
         st.warning("No runs with saved model artifacts found. "
                    "Run a new experiment to generate inspectable models.")
         st.stop()
@@ -298,6 +339,8 @@ elif page == "🔍 Inspect Q-Values":
         available.append("Tabular Q-Learning")
     if dqn_runs:
         available.append("Double DQN")
+    if reinforce_runs:
+        available.append("REINFORCE + Baseline")
 
     model_type = st.radio("Model Type", available, horizontal=True)
 
@@ -463,6 +506,120 @@ elif page == "🔍 Inspect Q-Values":
                     ]).unsqueeze(0)
                     with torch.no_grad():
                         grid[i, j] = net(s).argmax().item()
+
+            fig_h = go.Figure(go.Heatmap(
+                z=grid,
+                x=[f"{p:.2f}" for p in pos_range],
+                y=[f"{r:.3f}" for r in ret_range],
+                colorscale=[
+                    [0.0, '#ff6b6b'], [0.25, '#ffa06b'],
+                    [0.5, '#ffe66b'], [0.75, '#6bcfff'], [1.0, '#51cf66']
+                ],
+                zmin=0, zmax=4,
+                colorbar=dict(
+                    tickvals=[0, 1, 2, 3, 4],
+                    ticktext=ACTION_NAMES,
+                ),
+                hovertemplate="Position: %{x}<br>Return 1h: %{y}<br>"
+                              "Action: %{customdata}<extra></extra>",
+                customdata=[[ACTION_NAMES[grid[i, j]] for j in range(len(pos_range))]
+                            for i in range(len(ret_range))],
+            ))
+            fig_h.update_layout(
+                xaxis_title="Position",
+                yaxis_title="1h Log Return",
+                height=400, margin=dict(t=10, b=30),
+            )
+            st.plotly_chart(fig_h, use_container_width=True)
+
+    # ==================================================================
+    # REINFORCE INSPECTOR
+    # ==================================================================
+    elif model_type == "REINFORCE + Baseline":
+        import torch
+        from reinforce_agent import PolicyNetwork, ValueNetwork
+
+        run_id = st.selectbox("Select Run", [r['run_id'] for r in reinforce_runs])
+        run_meta = next(r for r in reinforce_runs if r['run_id'] == run_id)
+        hp = run_meta.get('hyperparameters', {})
+
+        hidden_dim = int(hp.get('hidden_dim', 64))
+        checkpoint = torch.load(
+            os.path.join(RUNS_DIR, f"{run_id}.pt"),
+            map_location='cpu',
+            weights_only=True,
+        )
+
+        policy_net = PolicyNetwork(obs_dim=10, action_dim=5, hidden_dim=hidden_dim)
+        value_net = ValueNetwork(obs_dim=10, hidden_dim=hidden_dim)
+        policy_net.load_state_dict(checkpoint['policy_state_dict'])
+        value_net.load_state_dict(checkpoint['value_state_dict'])
+        policy_net.eval()
+        value_net.eval()
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("State Input")
+            ret_1h = st.slider("1h Log Return", -0.10, 0.10, 0.0, 0.001, format="%.3f", key="reinforce_ret_1h")
+            ret_4h = st.slider("4h Log Return", -0.20, 0.20, 0.0, 0.005, format="%.3f", key="reinforce_ret_4h")
+            ret_24h = st.slider("24h Log Return", -0.50, 0.50, 0.0, 0.01, format="%.2f", key="reinforce_ret_24h")
+            vol_24h = st.slider("Volatility (24h σ)", 0.0, 0.10, 0.02, 0.005, format="%.3f", key="reinforce_vol_24h")
+            log_vol = st.slider("Log Volume", 10.0, 30.0, 20.0, 0.5, key="reinforce_log_vol")
+            hour_sin = st.slider("Hour Sin", -1.0, 1.0, 0.0, 0.1, key="reinforce_hour_sin")
+            hour_cos = st.slider("Hour Cos", -1.0, 1.0, 1.0, 0.1, key="reinforce_hour_cos")
+            day_sin = st.slider("Day Sin", -1.0, 1.0, 0.0, 0.1, key="reinforce_day_sin")
+            day_cos = st.slider("Day Cos", -1.0, 1.0, 1.0, 0.1, key="reinforce_day_cos")
+            pos = st.slider("Portfolio Position", 0.0, 1.0, 0.0, 0.05, key="reinforce_pos")
+
+        state = torch.FloatTensor([
+            ret_1h, ret_4h, ret_24h, vol_24h, log_vol,
+            hour_sin, hour_cos, day_sin, day_cos, pos
+        ]).unsqueeze(0)
+
+        with torch.no_grad():
+            logits = policy_net(state)
+            probs = torch.softmax(logits, dim=-1).squeeze().numpy()
+            value_estimate = float(value_net(state).item())
+
+        greedy = int(np.argmax(probs))
+
+        with col2:
+            st.metric("State Value Estimate", f"{value_estimate:.4f}")
+            st.subheader("Policy Probabilities")
+            colors = ['#ff6b6b' if i != greedy else '#51cf66' for i in range(5)]
+            fig = go.Figure(go.Bar(
+                x=ACTION_NAMES, y=probs,
+                marker_color=colors,
+                text=[f"{v:.3f}" for v in probs],
+                textposition='outside',
+            ))
+            fig.update_layout(
+                height=350, margin=dict(t=10, b=30),
+                yaxis_title="Probability",
+                yaxis_range=[0, 1],
+                annotations=[dict(
+                    x=ACTION_NAMES[greedy], y=probs[greedy],
+                    text="★ Greedy", showarrow=True, arrowhead=2,
+                    yshift=25, font=dict(size=14, color='#51cf66')
+                )]
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.subheader("Policy Surface (Position × 1h Return)")
+            pos_range = np.linspace(0, 1, 21)
+            ret_range = np.linspace(-0.05, 0.05, 21)
+            grid = np.zeros((len(ret_range), len(pos_range)), dtype=int)
+
+            for i, r_val in enumerate(ret_range):
+                for j, p_val in enumerate(pos_range):
+                    s = torch.FloatTensor([
+                        r_val, ret_4h, ret_24h, vol_24h, log_vol,
+                        hour_sin, hour_cos, day_sin, day_cos, p_val
+                    ]).unsqueeze(0)
+                    with torch.no_grad():
+                        grid[i, j] = policy_net(s).argmax().item()
 
             fig_h = go.Figure(go.Heatmap(
                 z=grid,
